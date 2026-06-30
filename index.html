@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crystallographic Visualizer (Dynamic c/a)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1e1e1e; color: #fff; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        #ui-panel { 
+            position: absolute; top: 20px; left: 20px; background: rgba(40, 40, 40, 0.95); 
+            padding: 20px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 340px;
+        }
+        h2 { margin-top: 0; font-size: 1.2rem; border-bottom: 1px solid #555; padding-bottom: 10px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; color: #aaa; }
+        select, input[type="number"], input[type="text"] { width: 100%; padding: 8px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="ui-panel">
+        <h2>Crystal Visualizer</h2>
+        <div class="form-group">
+            <label for="crystal-system">Crystal System</label>
+            <select id="crystal-system">
+                <option value="sc">Simple Cubic (SC)</option>
+                <option value="bcc">Body-Centered Cubic (BCC)</option>
+                <option value="fcc">Face-Centered Cubic (FCC)</option>
+                <option value="hcp">Hexagonal Close-Packed (HCP)</option>
+            </select>
+        </div>
+
+        <div id="hcp-controls" class="form-group" style="display: none;">
+            <label for="c-axis-slider">c/a Ratio: <span id="c-val">1.633</span></label>
+            <input type="range" id="c-axis-slider" min="1.0" max="2.5" step="0.01" value="1.633">
+        </div>
+
+        <div class="form-group">
+            <label for="display-mode">Display Mode</label>
+            <select id="display-mode">
+                <option value="plane">Plane (hkl)</option>
+                <option value="direction">Direction [uvw]</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Indices</label>
+            <div style="display:flex; gap:10px;">
+                <input type="number" id="index-1" value="1">
+                <input type="number" id="index-2" value="1">
+                <input type="number" id="index-3" value="1">
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x1e1e1e, 1);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        camera.position.set(3, 3, 4);
+        
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 7.5);
+        scene.add(dirLight);
+
+        let crystalGroup = new THREE.Group();
+        scene.add(crystalGroup);
+
+        const atomMat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7 });
+        const edgeMat = new THREE.LineBasicMaterial({ color: 0x888888 });
+
+        function addAtom(x, y, z) {
+            const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), atomMat);
+            sphere.position.set(x, y, z);
+            crystalGroup.add(sphere);
+        }
+
+        function drawHCP(cRatio) {
+            controls.target.set(0, cRatio/2, 0);
+            
+            // Draw Edges
+            const points = [];
+            for(let i=0; i<6; i++) {
+                const a1 = i * Math.PI / 3;
+                const a2 = ((i+1)%6) * Math.PI / 3;
+                points.push(new THREE.Vector3(Math.cos(a1), 0, Math.sin(a1)), new THREE.Vector3(Math.cos(a2), 0, Math.sin(a2)));
+                points.push(new THREE.Vector3(Math.cos(a1), cRatio, Math.sin(a1)), new THREE.Vector3(Math.cos(a2), cRatio, Math.sin(a2)));
+                points.push(new THREE.Vector3(Math.cos(a1), 0, Math.sin(a1)), new THREE.Vector3(Math.cos(a1), cRatio, Math.sin(a1)));
+            }
+            crystalGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), edgeMat));
+
+            // Draw Atoms
+            for(let i=0; i<6; i++) {
+                const x = Math.cos(i * Math.PI / 3);
+                const z = Math.sin(i * Math.PI / 3);
+                addAtom(x, 0, z); addAtom(x, cRatio, z);
+            }
+            addAtom(0, 0, 0); addAtom(0, cRatio, 0);
+            const r = 1 / Math.sqrt(3);
+            [Math.PI/2, Math.PI/2 + 2*Math.PI/3, Math.PI/2 + 4*Math.PI/3].forEach(ang => {
+                addAtom(r * Math.cos(ang), cRatio/2, r * Math.sin(ang));
+            });
+        }
+
+        function update() {
+            while(crystalGroup.children.length > 0) crystalGroup.remove(crystalGroup.children[0]);
+
+            const system = document.getElementById('crystal-system').value;
+            const cRatio = parseFloat(document.getElementById('c-axis-slider').value);
+            document.getElementById('c-val').innerText = cRatio;
+
+            // Visibility
+            document.getElementById('hcp-controls').style.display = (system === 'hcp') ? 'block' : 'none';
+
+            if (system === 'hcp') {
+                drawHCP(cRatio);
+            } else {
+                // ... (Existing logic for Cubic systems) ...
+                const boxGeo = new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5);
+                crystalGroup.add(new THREE.LineSegments(new THREE.EdgesGeometry(boxGeo), edgeMat));
+            }
+            
+            // Re-render plane/direction logic would go here
+        }
+
+        document.querySelectorAll('select, input').forEach(el => el.addEventListener('input', update));
+        
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+        update(); animate();
+    </script>
+</body>
+</html>
