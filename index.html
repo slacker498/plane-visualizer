@@ -69,7 +69,9 @@
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         camera.position.set(3, 3, 4);
-        
+        controls.target.set(0.5, 0.5, 0.5);
+        controls.update();
+
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
         dirLight.position.set(5, 10, 7.5);
@@ -80,63 +82,169 @@
 
         const atomMat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7 });
         const edgeMat = new THREE.LineBasicMaterial({ color: 0x888888 });
+        const planeMat = new THREE.MeshBasicMaterial({ color: 0xff5555, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
+        const arrowColor = 0xffcc33;
 
-        function addAtom(x, y, z) {
+        const unitCellCorners = [
+            [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
+            [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]
+        ];
+
+        const unitCellEdges = [
+            [0, 1], [0, 2], [1, 3], [2, 3],
+            [4, 5], [4, 6], [5, 7], [6, 7],
+            [0, 4], [1, 5], [2, 6], [3, 7]
+        ];
+
+        function transformDirect(coord, basis) {
+            return basis[0].clone().multiplyScalar(coord[0])
+                .add(basis[1].clone().multiplyScalar(coord[1]))
+                .add(basis[2].clone().multiplyScalar(coord[2]));
+        }
+
+        function getCrystalData(system, cRatio) {
+            const sqrt3 = Math.sqrt(3);
+            if (system === 'sc') {
+                return {
+                    basis: [
+                        new THREE.Vector3(1, 0, 0),
+                        new THREE.Vector3(0, 1, 0),
+                        new THREE.Vector3(0, 0, 1)
+                    ],
+                    atoms: [[0, 0, 0]]
+                };
+            }
+            if (system === 'bcc') {
+                return {
+                    basis: [
+                        new THREE.Vector3(1, 0, 0),
+                        new THREE.Vector3(0, 1, 0),
+                        new THREE.Vector3(0, 0, 1)
+                    ],
+                    atoms: [[0, 0, 0], [0.5, 0.5, 0.5]]
+                };
+            }
+            if (system === 'fcc') {
+                return {
+                    basis: [
+                        new THREE.Vector3(1, 0, 0),
+                        new THREE.Vector3(0, 1, 0),
+                        new THREE.Vector3(0, 0, 1)
+                    ],
+                    atoms: [[0, 0, 0], [0.5, 0.5, 0], [0.5, 0, 0.5], [0, 0.5, 0.5]]
+                };
+            }
+            // HCP
+            return {
+                basis: [
+                    new THREE.Vector3(1, 0, 0),
+                    new THREE.Vector3(0.5, sqrt3 / 2, 0),
+                    new THREE.Vector3(0, 0, cRatio)
+                ],
+                atoms: [[0, 0, 0], [2/3, 1/3, 1/2], [1/3, 2/3, 1/2]]
+            };
+        }
+
+        function addAtomDirect(coord, basis) {
+            const position = transformDirect(coord, basis);
             const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), atomMat);
-            sphere.position.set(x, y, z);
+            sphere.position.copy(position);
             crystalGroup.add(sphere);
         }
 
-        function drawHCP(cRatio) {
-            controls.target.set(0, cRatio/2, 0);
-            
-            // Draw Edges
+        function addUnitCellEdges(basis) {
             const points = [];
-            for(let i=0; i<6; i++) {
-                const a1 = i * Math.PI / 3;
-                const a2 = ((i+1)%6) * Math.PI / 3;
-                points.push(new THREE.Vector3(Math.cos(a1), 0, Math.sin(a1)), new THREE.Vector3(Math.cos(a2), 0, Math.sin(a2)));
-                points.push(new THREE.Vector3(Math.cos(a1), cRatio, Math.sin(a1)), new THREE.Vector3(Math.cos(a2), cRatio, Math.sin(a2)));
-                points.push(new THREE.Vector3(Math.cos(a1), 0, Math.sin(a1)), new THREE.Vector3(Math.cos(a1), cRatio, Math.sin(a1)));
-            }
-            crystalGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), edgeMat));
-
-            // Draw Atoms
-            for(let i=0; i<6; i++) {
-                const x = Math.cos(i * Math.PI / 3);
-                const z = Math.sin(i * Math.PI / 3);
-                addAtom(x, 0, z); addAtom(x, cRatio, z);
-            }
-            addAtom(0, 0, 0); addAtom(0, cRatio, 0);
-            const r = 1 / Math.sqrt(3);
-            [Math.PI/2, Math.PI/2 + 2*Math.PI/3, Math.PI/2 + 4*Math.PI/3].forEach(ang => {
-                addAtom(r * Math.cos(ang), cRatio/2, r * Math.sin(ang));
+            const corners = unitCellCorners.map(c => transformDirect(c, basis));
+            unitCellEdges.forEach(([a, b]) => {
+                points.push(corners[a], corners[b]);
             });
+            crystalGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), edgeMat));
+        }
+
+        function getReciprocalBasis(a1, a2, a3) {
+            const volume = a1.dot(new THREE.Vector3().crossVectors(a2, a3));
+            const b1 = new THREE.Vector3().crossVectors(a2, a3).divideScalar(volume);
+            const b2 = new THREE.Vector3().crossVectors(a3, a1).divideScalar(volume);
+            const b3 = new THREE.Vector3().crossVectors(a1, a2).divideScalar(volume);
+            return [b1, b2, b3];
+        }
+
+        function drawPlane(h, k, l, basis) {
+            if (h === 0 && k === 0 && l === 0) return;
+
+            const [b1, b2, b3] = getReciprocalBasis(basis[0], basis[1], basis[2]);
+            const normal = b1.clone().multiplyScalar(h)
+                .add(b2.clone().multiplyScalar(k))
+                .add(b3.clone().multiplyScalar(l));
+            const normalLength = normal.length();
+            if (normalLength < 1e-6) return;
+
+            const normalUnit = normal.clone().normalize();
+            let originPoint;
+            if (h !== 0) {
+                originPoint = transformDirect([1 / h, 0, 0], basis);
+            } else if (k !== 0) {
+                originPoint = transformDirect([0, 1 / k, 0], basis);
+            } else {
+                originPoint = transformDirect([0, 0, 1 / l], basis);
+            }
+
+            const planeGeo = new THREE.PlaneGeometry(4, 4);
+            const plane = new THREE.Mesh(planeGeo, planeMat);
+            plane.position.copy(originPoint);
+            plane.lookAt(originPoint.clone().add(normalUnit));
+            crystalGroup.add(plane);
+        }
+
+        function drawDirection(u, v, w, basis) {
+            if (u === 0 && v === 0 && w === 0) return;
+
+            const origin = transformDirect([0.5, 0.5, 0.5], basis);
+            const direction = transformDirect([u, v, w], basis);
+            const dirVector = direction.clone().normalize();
+            const length = direction.length();
+
+            const arrow = new THREE.ArrowHelper(dirVector, origin, length, arrowColor, 0.12, 0.06);
+            crystalGroup.add(arrow);
         }
 
         function update() {
-            while(crystalGroup.children.length > 0) crystalGroup.remove(crystalGroup.children[0]);
+            while (crystalGroup.children.length > 0) {
+                crystalGroup.remove(crystalGroup.children[0]);
+            }
 
             const system = document.getElementById('crystal-system').value;
             const cRatio = parseFloat(document.getElementById('c-axis-slider').value);
-            document.getElementById('c-val').innerText = cRatio;
-
-            // Visibility
+            document.getElementById('c-val').innerText = cRatio.toFixed(3);
             document.getElementById('hcp-controls').style.display = (system === 'hcp') ? 'block' : 'none';
 
-            if (system === 'hcp') {
-                drawHCP(cRatio);
+            const displayMode = document.getElementById('display-mode').value;
+            const h = parseInt(document.getElementById('index-1').value, 10) || 0;
+            const k = parseInt(document.getElementById('index-2').value, 10) || 0;
+            const l = parseInt(document.getElementById('index-3').value, 10) || 0;
+
+            const crystal = getCrystalData(system, cRatio);
+            addUnitCellEdges(crystal.basis);
+            crystal.atoms.forEach(atom => addAtomDirect(atom, crystal.basis));
+
+            if (displayMode === 'plane') {
+                drawPlane(h, k, l, crystal.basis);
             } else {
-                // ... (Existing logic for Cubic systems) ...
-                const boxGeo = new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5);
-                crystalGroup.add(new THREE.LineSegments(new THREE.EdgesGeometry(boxGeo), edgeMat));
+                drawDirection(h, k, l, crystal.basis);
             }
-            
-            // Re-render plane/direction logic would go here
+
+            controls.target.copy(transformDirect([0.5, 0.5, 0.5], crystal.basis));
+            controls.update();
         }
 
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
         document.querySelectorAll('select, input').forEach(el => el.addEventListener('input', update));
-        
+
         function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
         update(); animate();
     </script>
