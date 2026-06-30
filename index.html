@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crystallographic Visualizer (Dynamic c/a)</title>
+    <title>Crystallographic Visualizer (Dynamic c axis)</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1e1e1e; color: #fff; font-family: 'Segoe UI', sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; }
@@ -16,6 +16,11 @@
         label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem; color: #aaa; }
         select, input[type="number"], input[type="text"] { width: 100%; padding: 8px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; box-sizing: border-box; }
         input[type="range"] { width: 100%; cursor: pointer; }
+        #axis-labels { display: flex; gap: 8px; margin-top: 8px; }
+        .axis-label { padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); color: #eee; font-size: 0.85rem; }
+        .axis-x { background: rgba(255, 92, 92, 0.12); border-color: #e74c3c; }
+        .axis-y { background: rgba(92, 255, 92, 0.12); border-color: #2ecc71; }
+        .axis-z { background: rgba(92, 142, 255, 0.12); border-color: #3498db; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -35,7 +40,7 @@
         </div>
 
         <div id="hcp-controls" class="form-group" style="display: none;">
-            <label for="c-axis-slider">c/a Ratio: <span id="c-val">1.633</span></label>
+            <label for="c-axis-slider">c axis length: <span id="c-val">1.633</span></label>
             <input type="range" id="c-axis-slider" min="1.0" max="2.5" step="0.01" value="1.633">
         </div>
 
@@ -53,6 +58,15 @@
                 <input type="number" id="index-1" value="1">
                 <input type="number" id="index-2" value="1">
                 <input type="number" id="index-3" value="1">
+            </div>
+        </div>
+
+        <div class="form-group" id="axis-legend">
+            <label>Axes</label>
+            <div id="axis-labels">
+                <span class="axis-label axis-x">X</span>
+                <span class="axis-label axis-y">Y</span>
+                <span class="axis-label axis-z">Z</span>
             </div>
         </div>
     </div>
@@ -76,6 +90,9 @@
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
         dirLight.position.set(5, 10, 7.5);
         scene.add(dirLight);
+
+        const axesHelper = new THREE.AxesHelper(1.6);
+        scene.add(axesHelper);
 
         let crystalGroup = new THREE.Group();
         scene.add(crystalGroup);
@@ -141,7 +158,14 @@
                     new THREE.Vector3(0.5, sqrt3 / 2, 0),
                     new THREE.Vector3(0, 0, cRatio)
                 ],
-                atoms: [[0, 0, 0], [2/3, 1/3, 1/2], [1/3, 2/3, 1/2]]
+                atoms: [
+                    [0, 0, 0],
+                    [2/3, 1/3, 0],
+                    [1/3, 2/3, 0],
+                    [0, 0, 1/2],
+                    [2/3, 1/3, 1/2],
+                    [1/3, 2/3, 1/2]
+                ]
             };
         }
 
@@ -214,8 +238,8 @@
             }
 
             const system = document.getElementById('crystal-system').value;
-            const cRatio = parseFloat(document.getElementById('c-axis-slider').value);
-            document.getElementById('c-val').innerText = cRatio.toFixed(3);
+            const cAxis = parseFloat(document.getElementById('c-axis-slider').value);
+            document.getElementById('c-val').innerText = cAxis.toFixed(3);
             document.getElementById('hcp-controls').style.display = (system === 'hcp') ? 'block' : 'none';
 
             const displayMode = document.getElementById('display-mode').value;
@@ -223,7 +247,7 @@
             const k = parseInt(document.getElementById('index-2').value, 10) || 0;
             const l = parseInt(document.getElementById('index-3').value, 10) || 0;
 
-            const crystal = getCrystalData(system, cRatio);
+            const crystal = getCrystalData(system, cAxis);
             addUnitCellEdges(crystal.basis);
             crystal.atoms.forEach(atom => addAtomDirect(atom, crystal.basis));
 
