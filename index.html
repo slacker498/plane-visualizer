@@ -176,7 +176,31 @@
             crystalGroup.add(sphere);
         }
 
-        function addUnitCellEdges(basis) {
+        function addUnitCellEdges(basis, system) {
+            if (system === 'hcp') {
+                const a1 = basis[0];
+                const a2 = basis[1];
+                const c = basis[2];
+                const bottomCorners = [
+                    new THREE.Vector3(0, 0, 0),
+                    a1.clone(),
+                    a1.clone().add(a2),
+                    a2.clone(),
+                    a2.clone().sub(a1),
+                    a1.clone().negate()
+                ];
+                const topCorners = bottomCorners.map(pt => pt.clone().add(c));
+                const points = [];
+                for (let i = 0; i < 6; i++) {
+                    const next = (i + 1) % 6;
+                    points.push(bottomCorners[i], bottomCorners[next]);
+                    points.push(topCorners[i], topCorners[next]);
+                    points.push(bottomCorners[i], topCorners[i]);
+                }
+                crystalGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), edgeMat));
+                return;
+            }
+
             const points = [];
             const corners = unitCellCorners.map(c => transformDirect(c, basis));
             unitCellEdges.forEach(([a, b]) => {
@@ -248,7 +272,7 @@
             const l = parseInt(document.getElementById('index-3').value, 10) || 0;
 
             const crystal = getCrystalData(system, cAxis);
-            addUnitCellEdges(crystal.basis);
+            addUnitCellEdges(crystal.basis, system);
             crystal.atoms.forEach(atom => addAtomDirect(atom, crystal.basis));
 
             if (displayMode === 'plane') {
